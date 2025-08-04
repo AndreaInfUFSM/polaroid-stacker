@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Polaroid Stacker</title>
+    <style>
+    body {
+        margin: 0;
+        font-family: 'Segoe UI', sans-serif;
+        background: #f0f0f5;
+        display: flex;
+        flex-direction: row;
+        height: 100vh;
+    }
+
+    #sidebar {
+        width: 280px;
+        background: white;
+        border-right: 1px solid #ddd;
+        padding: 20px;
+        box-shadow: 2px 0 4px rgba(0,0,0,0.05);
+        box-sizing: border-box;
+        overflow-y: auto;
+    }
+
+    #main {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 20px;
+        box-sizing: border-box;
+        position: relative;
+    }
+
+    canvas {
+        border: 1px solid #ccc;
+        cursor: grab;
+        background: white;
+        max-width: 100%;
+    }
+
+    #spinner {
+        display: none;
+        position: absolute;
+        inset: 0;
+        background: rgba(255,255,255,0.6);
+        z-index: 999;
+        justify-content: center;
+        align-items: center;
+        font-size: 1.2em;
+        color: #333;        
+    }
+
+    h2 {
+        margin-top: 0;
+        font-size: 20px;
+        color: #333;
+    }
+
+    label {
+        display: block;
+        margin: 10px 0 5px;
+        font-size: 14px;
+        color: #444;
+    }
+
+    input[type="file"],
+    input[type="color"],
+    input[type="number"],
+    select,
+    button {
+        margin: 5px 0;
+        padding: 5px;
+        font-size: 14px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    input[type="checkbox"] {
+        margin-right: 6px;
+    }
+
+    button {
+        background-color: #0077ff;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        margin-top: 10px;
+    }
+
+    button:hover {
+        background-color: #005fd1;
+    }
+
+    p small {
+        font-size: 12px;
+        color: #666;
+        display: block;
+        margin-top: 20px;
+    }
+    </style>
+
+</head>
+
+
+<body>
+
+<div id="sidebar">
+
+  <h2>Polaroid Stacker</h2>
+
+  <input type="file" id="uploader" multiple accept="image/*">
+
+  <label>Background:</label>
+  <input type="color" id="bgColor" value="#f5f5f5">
+  <label><input type="checkbox" id="transparentBg"> Transparent</label>
+
+  <label>Canvas size:</label>
+  <input type="number" id="canvasWidth" value="1000">
+  <input type="number" id="canvasHeight" value="700">
+  <button onclick="resizeCanvas()">Apply Size</button>
+  <button onclick="randomizeLayout()">Randomize Layout</button>
+
+  <!-- <label><input type="checkbox" id="cardShadow" checked> Polaroid shadow</label> -->
+
+  <label>Export quality:</label>
+  <select id="exportQuality">
+    <option value="1">1x</option>
+    <option value="2" selected>2x</option>
+    <option value="3">3x</option>
+    <option value="4">4x</option>
+  </select>
+
+  <button onclick="exportImage()">Download PNG</button>
+
+  <p><small>
+    Select an image and use arrow keys:<br>
+    ← / → rotate · ↑ / ↓ resize · Delete to remove · Ctrl+Z to Undo Delete
+  </small></p>
+
+  <p class="footer-note"><small>Made with ❤️ by <a href="https://github.com/AndreaInfUFSM/polaroid-stacker">AndreaInfUFSM</a></small></p>
+</div>
+
+<div id="main">
+  <canvas id="canvas" width="1000" height="700"></canvas>
+  <div id="spinner">
+    Preparing download...
+  </div>  
+
+</div>
+
+
+
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const images = [];
+const historyStack = [];
+let dragging = null;
+let selected = null;
+let offsetX = 0, offsetY = 0;
+
+function drawAll() {
+  const transparent = document.getElementById('transparentBg').checked;
+  const cardShadow = true; // document.getElementById('cardShadow').checked;
+  console.log(cardShadow);
+
+  if (transparent) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  } else {
+    const color = document.getElementById('bgColor').value;
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // Draw all except dragging
+  for (const imgObj of images) {
+    if (imgObj !== dragging) drawImageObj(imgObj, cardShadow);
+  }
+
+  // Draw dragging image on top
+  if (dragging) {
+    drawImageObj(dragging, cardShadow);
+  } else if (selected) {
+    drawImageObj(selected, cardShadow);
+  }
+}
+
+function drawImageObj(imgObj, cardShadow) {
+  ctx.save();
+  ctx.translate(imgObj.x + imgObj.width / 2, imgObj.y + imgObj.height / 2);
+  ctx.rotate(imgObj.angle);
+  ctx.translate(-imgObj.width / 2, -imgObj.height / 2);
+
+  if (cardShadow) {
+    ctx.shadowColor = 'rgba(0,0,0,0.2)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetX = 4;
+    ctx.shadowOffsetY = 4;
+  }
+
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, imgObj.width, imgObj.height);
+
+  if (!cardShadow) {
+    // ctx.shadowColor = 'rgba(0,0,0,0.2)';
+    // ctx.shadowBlur = 8;
+    // ctx.shadowOffsetX = 4;
+    // ctx.shadowOffsetY = 4;
+  } else {
+    ctx.shadowColor = 'transparent';
+  }
+
+  ctx.drawImage(imgObj.img, 10, 10, imgObj.width - 20, imgObj.height - 40);
+
+  if (imgObj === selected) {
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = '#0077ff';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(0, 0, imgObj.width, imgObj.height);
+  }
+
+  ctx.restore();
+}
+
+
+function exportImage() {
+  const spinner = document.getElementById('spinner');
+  spinner.style.display = 'flex';
+
+  setTimeout(() => {
+    generateHighResImage();
+
+    spinner.style.display = 'none';
+  }, 50); // slight delay lets the spinner appear before blocking work starts
+}
+
+function generateHighResImage() {
+  const scale = parseInt(document.getElementById('exportQuality').value);
+  const exportCanvas = document.createElement('canvas');
+  const exportCtx = exportCanvas.getContext('2d');
+
+  exportCanvas.width = canvas.width * scale;
+  exportCanvas.height = canvas.height * scale;
+
+  const transparent = document.getElementById('transparentBg').checked;
+  if (!transparent) {
+    exportCtx.fillStyle = document.getElementById('bgColor').value;
+    exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+  } else {
+    exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+  }
+
+  const cardShadow = true; // document.getElementById('cardShadow').checked;
+
+  for (const imgObj of images) {
+    exportCtx.save();
+    exportCtx.translate((imgObj.x + imgObj.width / 2) * scale, (imgObj.y + imgObj.height / 2) * scale);
+    exportCtx.rotate(imgObj.angle);
+    exportCtx.translate(-imgObj.width / 2 * scale, -imgObj.height / 2 * scale);
+
+    if (cardShadow) {
+      exportCtx.shadowColor = 'rgba(0,0,0,0.2)';
+      exportCtx.shadowBlur = 8 * scale;
+      exportCtx.shadowOffsetX = 4 * scale;
+      exportCtx.shadowOffsetY = 4 * scale;
+    }
+
+    exportCtx.fillStyle = 'white';
+    exportCtx.fillRect(0, 0, imgObj.width * scale, imgObj.height * scale);
+
+    if (!cardShadow) {
+      exportCtx.shadowColor = 'rgba(0,0,0,0.2)';
+      exportCtx.shadowBlur = 8 * scale;
+      exportCtx.shadowOffsetX = 4 * scale;
+      exportCtx.shadowOffsetY = 4 * scale;
+    } else {
+      exportCtx.shadowColor = 'transparent';
+    }
+
+    exportCtx.drawImage(
+      imgObj.img,
+      10 * scale,
+      10 * scale,
+      (imgObj.width - 20) * scale,
+      (imgObj.height - 40) * scale
+    );
+
+    exportCtx.restore();
+  }
+
+  const link = document.createElement('a');
+  link.download = 'polaroid_stack.png';
+  link.href = exportCanvas.toDataURL('image/png');
+  link.click();
+}
+
+
+
+function randomizeLayout() {
+  const padding = 50;
+  const cols = Math.ceil(Math.sqrt(images.length));
+  const rows = Math.ceil(images.length / cols);
+  const cellWidth = (canvas.width - 2 * padding) / cols;
+  const cellHeight = (canvas.height - 2 * padding) / rows;
+
+  // Shuffle image order to avoid same layout on each call
+  const shuffled = [...images].sort(() => Math.random() - 0.5);
+
+  for (let i = 0; i < shuffled.length; i++) {
+    const img = shuffled[i];
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+
+    // Center of each cell + some random offset
+    const jitterX = (Math.random() - 0.5) * cellWidth * 0.5;
+    const jitterY = (Math.random() - 0.5) * cellHeight * 0.5;
+
+    img.x = padding + col * cellWidth + jitterX;
+    img.y = padding + row * cellHeight + jitterY;
+    img.angle = (Math.random() - 0.5) * 0.4;
+  }
+
+  drawAll();
+}
+
+function resizeCanvas() {
+  const width = parseInt(document.getElementById('canvasWidth').value);
+  const height = parseInt(document.getElementById('canvasHeight').value);
+  canvas.width = width;
+  canvas.height = height;
+  drawAll();
+}
+
+document.getElementById('uploader').addEventListener('change', function (e) {
+  const files = e.target.files;
+  for (const file of files) {
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      const img = new Image();
+      img.onload = function() {
+        const aspect = img.width / img.height;
+        const height = 200;
+        const width = height * aspect;
+        images.push({
+          img: img,
+          x: Math.random() * (canvas.width - width),
+          y: Math.random() * (canvas.height - height),
+          width: width + 20,
+          height: height + 60,
+          angle: (Math.random() - 0.5) * 0.4
+        });
+        drawAll();
+      };
+      img.src = evt.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+});
+
+canvas.addEventListener('mousedown', function (e) {
+  const mx = e.offsetX, my = e.offsetY;
+  selected = null;
+  for (let i = images.length - 1; i >= 0; i--) {
+    const img = images[i];
+    if (mx >= img.x && mx <= img.x + img.width &&
+        my >= img.y && my <= img.y + img.height) {
+      dragging = img;
+      selected = img;
+      offsetX = mx - img.x;
+      offsetY = my - img.y;
+      images.splice(i, 1);
+      images.push(dragging);
+      break;
+    }
+  }
+  drawAll();
+});
+
+canvas.addEventListener('mousemove', function (e) {
+  if (dragging) {
+    dragging.x = e.offsetX - offsetX;
+    dragging.y = e.offsetY - offsetY;
+    drawAll();
+  }
+});
+
+canvas.addEventListener('mouseup', () => dragging = null);
+canvas.addEventListener('mouseleave', () => dragging = null);
+
+document.addEventListener('keydown', (e) => {
+  // Undo
+  if (e.ctrlKey && e.key === 'z') {
+    if (historyStack.length > 0) {
+      const recovered = historyStack.pop();
+      images.push(recovered);
+      selected = recovered;
+      drawAll();
+    }
+    return;
+  }
+
+  if (!selected) return;
+
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Delete', 'Backspace'].includes(e.key)) {
+    e.preventDefault(); // prevent scrolling or navigation
+  }
+
+  switch (e.key) {
+    case 'ArrowLeft':
+      selected.angle -= 0.05;
+      break;
+    case 'ArrowRight':
+      selected.angle += 0.05;
+      break;
+    case 'ArrowUp':
+      selected.width *= 1.05;
+      selected.height *= 1.05;
+      break;
+    case 'ArrowDown':
+      selected.width *= 0.95;
+      selected.height *= 0.95;
+      break;
+    case 'Delete':
+    case 'Backspace':
+      const index = images.indexOf(selected);
+      if (index !== -1) {
+        historyStack.push(selected);
+        images.splice(index, 1);
+        selected = null;
+      }
+      break;
+  }
+
+  drawAll();
+});
+
+document.getElementById('transparentBg').addEventListener('change', drawAll);
+document.getElementById('bgColor').addEventListener('input', drawAll);
+// document.getElementById('cardShadow').addEventListener('change', drawAll);
+</script>
+
+</body>
+</html>
+
