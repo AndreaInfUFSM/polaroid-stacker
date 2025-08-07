@@ -15,7 +15,7 @@
 
 ## How to Use
 
-1. **Live version** [here](https://andreainfufsm.github.io) or  **Open `index.html` in your browser** (no server needed).
+1. **Live version** [here](https://andreainfufsm.github.io/polaroid-stacker) or  **Open `index.html` in your browser** (no server needed).
 2. **Upload images** using the file input.
 3. **Use your mouse** to drag images around.
 4. **Keyboard controls:**
